@@ -1,0 +1,410 @@
+<!--
+File: unico_kitchen_index.html
+Purpose: Improved frontend for Unico Kitchen (single-file SPA).
+Instructions: Replace the two config constants (GAS_WEBAPP_URL and SECRET) with your Apps Script Web App URL and secret. Then host this file (GitHub Pages, Netlify, or Vercel) as index.html.
+
+IMPORTANT: This file talks to the Apps Script backend that expects GET requests with query params: action, secret, and other params (code, item, recipe). Example: ?action=getStudent&code=STU001&secret=SECRET
+-->
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Unico Kitchen — Student Cooking Assistant</title>
+  <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+  <style>
+    :root{
+      --bg:#f6f8fb; --card:#ffffff; --muted:#6b7280; --accent:#0ea5a4; --danger:#ef4444;
+      --glass: rgba(255,255,255,0.6);
+      --radius:12px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:#0f172a}
+    header{background:linear-gradient(90deg,#063743, #0f172a);color:#fff;padding:18px 20px}
+    .wrap{max-width:1100px;margin:20px auto;padding:18px}
+    .card{background:var(--card);border-radius:var(--radius);padding:16px;box-shadow:0 8px 30px rgba(12,15,30,0.06)}
+    .grid{display:grid;grid-template-columns:1fr 380px;gap:18px}
+    .row{display:flex;gap:12px;align-items:center}
+    input,button,select,textarea{font:inherit}
+    input[type=text]{padding:10px;border-radius:10px;border:1px solid #e6e9ef;width:100%}
+    button{padding:8px 12px;border-radius:10px;border:none;background:var(--accent);color:#fff;cursor:pointer}
+    button.ghost{background:transparent;border:1px solid #e6e9ef;color:var(--muted)}
+    .small{font-size:13px;color:var(--muted)}
+    h1,h2,h3{margin:0}
+    nav{display:flex;gap:8px;margin-top:12px}
+    .tab{padding:8px 12px;border-radius:10px;cursor:pointer;background:transparent;border:1px solid transparent}
+    .tab.active{background:var(--accent);color:#fff}
+
+    /* lists */
+    ul{padding-left:14px;margin:8px 0}
+    li{margin:6px 0}
+    .missing{color:var(--danger);font-weight:600}
+    .shop-item{display:flex;justify-content:space-between;align-items:center;padding:10px;border-bottom:1px dashed #eee}
+    .actions{display:flex;gap:8px}
+
+    /* responsive */
+    @media (max-width:900px){
+      .grid{grid-template-columns:1fr;}
+      .sidebar{order:-1}
+    }
+
+    footer{margin-top:16px;text-align:center;color:var(--muted);font-size:13px}
+
+    /* small helper */
+    .pill{background:#eef6f6;padding:6px 8px;border-radius:999px;color:#07575b;font-weight:600;font-size:13px}
+    .badge{background:#f3f4f6;padding:6px 8px;border-radius:8px;color:#111}
+
+    .loader{display:inline-block;width:14px;height:14px;border:2px solid rgba(0,0,0,0.12);border-top-color:var(--accent);border-radius:50%;animation:spin .9s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    .recipe{padding:10px;border-radius:10px;border:1px solid #f1f5f9;margin-bottom:8px}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <h1>Unico Kitchen</h1>
+          <div class="small">Student cooking assistant — recipes from your fridge</div>
+        </div>
+        <div class="row">
+          <div id="statusBadge" class="pill">Offline</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- Login card -->
+    <div id="loginCard" class="card" style="margin-bottom:18px">
+      <h2>Welcome — sign in with your student code</h2>
+      <div style="height:10px"></div>
+      <div class="row">
+        <input id="codeInput" type="text" placeholder="e.g. STU001" aria-label="Student code" />
+        <button id="btnLogin">Sign in</button>
+        <button id="btnRemember" class="ghost">Remember me</button>
+      </div>
+      <div style="height:8px"></div>
+      <div class="small">You only need your unique code (no password). Codes come from the Students sheet. If you are testing, try <strong>STU001</strong>.</div>
+    </div>
+
+    <!-- App area -->
+    <div id="appArea" style="display:none">
+      <div class="grid">
+        <div>
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <h2 id="welcomeTitle">Hi</h2>
+                <div id="subInfo" class="small">Your fridge and recipe suggestions are below.</div>
+              </div>
+              <div style="text-align:right">
+                <div id="loggedCode" class="badge">Code: -</div>
+                <div style="height:8px"></div>
+                <div class="row"><button id="btnLogout" class="ghost">Logout</button></div>
+              </div>
+            </div>
+
+            <nav style="margin-top:12px">
+              <div class="tab active" data-tab="dashboard">Dashboard</div>
+              <div class="tab" data-tab="recipes">Recipes</div>
+              <div class="tab" data-tab="shop">Shop</div>
+            </nav>
+
+            <div id="dashboardView" style="margin-top:12px">
+              <div style="display:flex;gap:12px;flex-wrap:wrap">
+                <div style="flex:1;min-width:220px">
+                  <h3>My Fridge</h3>
+                  <ul id="fridgeList"></ul>
+                  <div style="display:flex;gap:8px;margin-top:8px">
+                    <input id="addItemInput" type="text" placeholder="Add ingredient (e.g. Pasta)" />
+                    <button id="btnAddItem">Add</button>
+                  </div>
+                </div>
+
+                <div style="width:320px" class="sidebar">
+                  <h3>Quick Actions</h3>
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    <button id="btnRefillDemo" class="ghost">Refill demo ingredients</button>
+                    <button id="btnUseIngredient" class="ghost">Simulate use 1 item</button>
+                    <button id="btnReload" class="ghost">Refresh data</button>
+                  </div>
+
+                  <div style="height:12px"></div>
+
+                  <h3>Stats</h3>
+                  <div id="statsArea" class="small">—</div>
+                </div>
+              </div>
+
+              <div style="height:14px"></div>
+
+              <h3>Suggested Recipes</h3>
+              <div id="recipesArea">Loading…</div>
+            </div>
+
+            <div id="recipesView" style="display:none;margin-top:12px">
+              <h3>All Recipes</h3>
+              <div id="allRecipesArea">Loading…</div>
+            </div>
+
+            <div id="shopView" style="display:none;margin-top:12px">
+              <h3>Mini Shop</h3>
+              <div id="shopList">Loading…</div>
+            </div>
+
+          </div>
+
+          <div style="height:12px"></div>
+
+          <div class="card small">
+            <strong>Developer / Tester notes</strong>
+            <ul>
+              <li>Replace <code>GAS_WEBAPP_URL</code> and <code>SECRET</code> in the config (bottom of file) with your values.</li>
+              <li>Backend expects: <code>?action=getStudent</code>, <code>?action=getRecipes</code>, <code>?action=getShop</code>, <code>?action=buyItems</code>, <code>?action=useIngredient</code>, <code>?action=cook</code></li>
+              <li>For multi-item buy, the frontend calls buy multiple times (one item per request) to keep backend simple.</li>
+            </ul>
+          </div>
+
+        </div>
+
+        <aside>
+          <div class="card">
+            <h3>Shop Quick Add</h3>
+            <div id="miniShopList">Loading…</div>
+          </div>
+
+          <div style="height:12px"></div>
+
+          <div class="card small">
+            <h3>Help</h3>
+            <ol>
+              <li>Sign in with a code (e.g. <code>STU001</code>).</li>
+              <li>See recipes suggested based on your fridge.</li>
+              <li>Buy missing items to add to fridge.</li>
+            </ol>
+          </div>
+        </aside>
+      </div>
+
+    </div>
+
+    <div id="message" style="margin-top:12px"></div>
+
+    <footer>
+      Unico Kitchen — frontend. Host this file as <code>index.html</code> (GitHub Pages or Netlify). If you want, I can generate the GitHub repo files next.
+    </footer>
+  </main>
+
+<script>
+// ---------------- CONFIG ----------------
+const GAS_WEBAPP_URL = 'PASTE_YOUR_GAS_WEBAPP_URL_HERE'; // e.g. https://script.google.com/macros/s/AKfycb.../exec
+const SECRET = 'unikosecret123'; // must match Apps Script SECRET
+// ----------------------------------------
+
+// small helpers
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+let currentUser = null; // {code, name, fridge:[]}
+
+function setStatusOnline(ok){
+  const el = document.getElementById('statusBadge');
+  el.textContent = ok ? 'Connected' : 'Offline';
+  el.style.background = ok ? '' : 'linear-gradient(90deg,#ef4444,#9333ea)';
+}
+
+async function api(action, params={}){
+  params.action = action;
+  params.secret = SECRET;
+  const qs = new URLSearchParams(params).toString();
+  const url = GAS_WEBAPP_URL + '?' + qs;
+  try{
+    const res = await fetch(url, {cache:'no-store'});
+    const json = await res.json();
+    return json;
+  }catch(err){
+    console.error('API error', err); throw err;
+  }
+}
+
+// -------- UI actions --------
+async function login(code, remember=false){
+  try{
+    showMsg('Signing in...');
+    const res = await api('getStudent',{code});
+    if(res.error){ showMsg(res.error, true); setStatusOnline(true); return; }
+    currentUser = {code: res.code, name: res.name || res.code, fridge: res.fridge || []};
+    $('#loginCard').style.display='none';
+    $('#appArea').style.display='block';
+    $('#welcomeTitle').textContent = `Hi ${currentUser.name}`;
+    $('#loggedCode').textContent = `Code: ${currentUser.code}`;
+    renderFridge(); loadAll(); setStatusOnline(true);
+    showMsg('Welcome '+currentUser.name);
+    if(remember) localStorage.setItem('unico_code', code);
+  }catch(err){ showMsg('Connection failed: '+err.message, true); setStatusOnline(false); }
+}
+
+function logout(){
+  currentUser = null;
+  $('#appArea').style.display='none';
+  $('#loginCard').style.display='block';
+  localStorage.removeItem('unico_code');
+  showMsg('Logged out');
+}
+
+function showMsg(text, isError=false){ const el = $('#message'); el.textContent = text; el.style.color = isError ? 'var(--danger)' : 'var(--accent)'; }
+
+function renderFridge(){
+  const ul = $('#fridgeList'); ul.innerHTML='';
+  (currentUser.fridge || []).forEach(item=>{
+    const li = document.createElement('li');
+    li.textContent = item;
+    const btn = document.createElement('button'); btn.className='ghost'; btn.style.marginLeft='8px'; btn.textContent='Use';
+    btn.onclick = async ()=>{
+      await api('useIngredient',{code:currentUser.code, item});
+      await refreshStudent();
+      showMsg('Used '+item);
+    }
+    li.appendChild(btn);
+    ul.appendChild(li);
+  })
+}
+
+async function refreshStudent(){
+  const res = await api('getStudent',{code: currentUser.code});
+  if(!res.error){ currentUser.fridge = res.fridge || []; renderFridge(); loadRecipesSuggested(); }
+}
+
+async function loadAll(){
+  await loadRecipesSuggested();
+  await loadAllRecipes();
+  await loadShop();
+  await loadMiniShop();
+  updateStats();
+}
+
+async function loadRecipesSuggested(){
+  const el = $('#recipesArea'); el.innerHTML = '<div class="small">Loading...</div>';
+  try{
+    const res = await api('getRecipes',{code: currentUser.code});
+    if(res.error){ el.textContent = res.error; return }
+    el.innerHTML='';
+    const suggested = res.filter(r=>r.canCook);
+    const others = res.filter(r=>!r.canCook);
+
+    if(suggested.length===0) el.innerHTML = '<div class="small">No recipes fully available. Try buying missing items.</div>';
+    suggested.forEach(r=> addRecipeCard(r, true));
+    if(others.length>0){
+      const h = document.createElement('div'); h.className='small'; h.style.marginTop='12px'; h.textContent = 'Other recipes (missing items)'; el.appendChild(h);
+      others.forEach(r=> addRecipeCard(r, false));
+    }
+  }catch(err){ el.textContent = 'Failed to load recipes'; }
+}
+
+function addRecipeCard(r, canCook){
+  const el = $('#recipesArea');
+  const div = document.createElement('div'); div.className='recipe';
+  const reqs = r.ingredients; // array
+  const missing = reqs.filter(x=> !currentUser.fridge.map(f=>f.toLowerCase()).includes(x));
+  div.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
+    <strong>${r.recipe}</strong>
+    <div class="small">${canCook ? '<span class="pill">Ready</span>' : `<span class="missing">Missing ${missing.length}</span>`}</div>
+  </div>
+  <div class="small">Needs: ${reqs.join(', ')}</div>
+  <div style="height:8px"></div>`;
+
+  const actions = document.createElement('div'); actions.className='actions';
+  if(canCook){
+    const cookBtn = document.createElement('button'); cookBtn.textContent='Cook';
+    cookBtn.onclick = async ()=>{
+      if(!confirm('Mark recipe as cooked? This will remove ingredients from your fridge.')) return;
+      const res = await api('cook',{code: currentUser.code, recipe: r.recipe});
+      if(res.error) showMsg(res.error,true); else { showMsg('Cooked '+r.recipe); await refreshStudent(); }
+    }
+    actions.appendChild(cookBtn);
+  } else {
+    const buyBtn = document.createElement('button'); buyBtn.textContent='Buy missing';
+    buyBtn.onclick = async ()=>{
+      showMsg('Buying missing items...');
+      for(const it of missing){ await api('buyItems',{code: currentUser.code, item: it}); }
+      await refreshStudent(); showMsg('Added missing items');
+    }
+    actions.appendChild(buyBtn);
+  }
+  const viewBtn = document.createElement('button'); viewBtn.className='ghost'; viewBtn.textContent='View steps';
+  viewBtn.onclick = ()=>{ alert('Steps:
+
+'+r.steps); }
+  actions.appendChild(viewBtn);
+  div.appendChild(actions);
+  el.appendChild(div);
+}
+
+async function loadAllRecipes(){
+  const el = $('#allRecipesArea'); el.innerHTML='';
+  const res = await api('getRecipes',{code: currentUser.code});
+  if(res.error) { el.textContent = res.error; return }
+  res.forEach(r=>{
+    const d = document.createElement('div'); d.className='recipe'; d.innerHTML = `<strong>${r.recipe}</strong><div class='small'>Needs: ${r.ingredients.join(', ')}</div><div style='height:6px'></div><div class='small'>${r.steps}</div>`;
+    el.appendChild(d);
+  })
+}
+
+async function loadShop(){
+  const el = $('#shopList'); el.innerHTML='';
+  const res = await api('getShop',{});
+  if(res.error){ el.textContent = res.error; return }
+  res.forEach(it=>{
+    const row = document.createElement('div'); row.className='shop-item';
+    row.innerHTML = `<div><strong>${it.item}</strong><div class='small'>KSh ${it.price}</div></div>`;
+    const buy = document.createElement('button'); buy.textContent='Add to Fridge';
+    buy.onclick = async ()=>{ await api('buyItems',{code: currentUser.code, item: it.item}); await refreshStudent(); showMsg('Added '+it.item); }
+    row.appendChild(buy); el.appendChild(row);
+  })
+}
+
+async function loadMiniShop(){
+  const el = $('#miniShopList'); el.innerHTML='';
+  const res = await api('getShop',{});
+  if(res.error){ el.textContent = res.error; return }
+  res.slice(0,8).forEach(it=>{
+    const r = document.createElement('div'); r.style.display='flex'; r.style.justifyContent='space-between'; r.style.marginBottom='8px';
+    r.innerHTML = `<div>${it.item}</div>`;
+    const b = document.createElement('button'); b.className='ghost'; b.textContent='+'; b.onclick = async ()=>{ await api('buyItems',{code: currentUser.code, item: it.item}); await refreshStudent(); showMsg('Added '+it.item); }
+    r.appendChild(b); el.appendChild(r);
+  })
+}
+
+function updateStats(){
+  $('#statsArea').textContent = `${currentUser.fridge.length} items in fridge`;
+}
+
+// -------- small helpers for interactions --------
+$('#btnLogin').onclick = ()=>{ const code = $('#codeInput').value.trim(); if(!code){ showMsg('Type your code', true); return } const remember = confirm('Remember this code on this browser?'); login(code, remember); }
+$('#btnLogout').onclick = ()=>{ if(confirm('Logout?')) logout(); }
+$('#btnAddItem').onclick = async ()=>{ const v = $('#addItemInput').value.trim(); if(!v) { showMsg('Type item', true); return } await api('buyItems',{code: currentUser.code, item: v}); $('#addItemInput').value=''; await refreshStudent(); showMsg('Added '+v); }
+$('#btnRefillDemo').onclick = async ()=>{ const demo = ['rice','egg','tomato','pasta','garlic']; for(const it of demo) await api('buyItems',{code: currentUser.code, item: it}); await refreshStudent(); showMsg('Demo refill done'); }
+$('#btnUseIngredient').onclick = async ()=>{ if(!currentUser || currentUser.fridge.length===0) { showMsg('Fridge empty', true); return } const it = currentUser.fridge[0]; await api('useIngredient',{code: currentUser.code, item: it}); await refreshStudent(); showMsg('Used '+it); }
+$('#btnReload').onclick = async ()=>{ await loadAll(); showMsg('Refreshed'); }
+$('#btnRemember').onclick = ()=>{ const code = $('#codeInput').value.trim(); if(code) { localStorage.setItem('unico_code', code); showMsg('Will remember this code'); } }
+
+// tabs
+$$('.tab').forEach(t=> t.onclick = ()=>{ const tab = t.dataset.tab; $$('.tab').forEach(x=>x.classList.remove('active')); t.classList.add('active'); $('#dashboardView').style.display = tab==='dashboard' ? 'block' : 'none'; $('#recipesView').style.display = tab==='recipes' ? 'block' : 'none'; $('#shopView').style.display = tab==='shop' ? 'block' : 'none'; })
+
+// on load: try to auto-login if code saved
+window.addEventListener('load', async ()=>{
+  const saved = localStorage.getItem('unico_code');
+  if(saved){ $('#codeInput').value = saved; const auto = confirm('Sign in as '+saved+'?'); if(auto) await login(saved, false); }
+});
+// ---------------- CONFIG ----------------
+const GAS_WEBAPP_URL = 'PASTE_YOUR_GAS_WEBAPP_URL_HERE'; // e.g. https://script.google.com/macros/s/AKfycb.../exec
+const SECRET = 'unikosecret123'; // must match Apps Script SECRET
+// ----------------------------------------
+
+
+</script>
+</body>
+</html>
